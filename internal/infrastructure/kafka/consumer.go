@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
 	handle "pet-kafka/internal/handler"
 	"strings"
@@ -17,7 +18,6 @@ const (
 type Consumer struct {
 	consumer       *kafka.Consumer
 	handler        handle.Handler
-	stop           bool
 	l              *zap.SugaredLogger
 	consumerNumber int
 }
@@ -51,31 +51,33 @@ func NewConsumer(handler handle.Handler, l *zap.SugaredLogger, address []string,
 	}, nil
 }
 
-func (c *Consumer) Start() {
+func (c *Consumer) Start(ctx context.Context) error {
 	for {
-		if c.stop {
-			break
-		}
-		kafkaMsg, err := c.consumer.ReadMessage(noTimeout)
-		if err != nil {
-			c.l.Errorf("Read message error, Start method: %v")
-		}
-		if kafkaMsg == nil {
-			continue
-		}
-		if err = c.handler.HandlerImplMessage(kafkaMsg.Value, kafkaMsg.TopicPartition, c.consumerNumber); err != nil {
-			c.l.Errorf("HandlerImpl message error, Start method: %v")
-			continue
-		}
-		if _, err = c.consumer.StoreMessage(kafkaMsg); err != nil {
-			c.l.Errorf("Store message error, Start method: %v")
-			continue
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			kafkaMsg, err := c.consumer.ReadMessage(noTimeout)
+			if err != nil {
+				c.l.Errorf("Read message error, Start method: %v", err)
+				return fmt.Errorf("read message error, Start method: %w", err)
+			}
+			if kafkaMsg == nil {
+				continue
+			}
+			if err = c.handler.HandlerImplMessage(kafkaMsg.Value, kafkaMsg.TopicPartition, c.consumerNumber); err != nil {
+				c.l.Errorf("HandlerImpl message error, Start method: %v", err)
+				return fmt.Errorf("handlerImpl message error, Start method: %w", err)
+			}
+			if _, err = c.consumer.StoreMessage(kafkaMsg); err != nil {
+				c.l.Errorf("Store message error, Start method: %v")
+				return fmt.Errorf("store message error, Start method: %w", err)
+			}
 		}
 	}
 }
 
 func (c *Consumer) Stop() error {
-	c.stop = true
 	if _, err := c.consumer.Commit(); err != nil {
 		return err
 	}
