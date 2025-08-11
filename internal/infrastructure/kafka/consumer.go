@@ -3,8 +3,11 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"os"
 	handle "pet-kafka/internal/handler"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"go.uber.org/zap"
@@ -83,4 +86,22 @@ func (c *Consumer) Stop() error {
 	}
 	c.l.Infof("Commited offset")
 	return c.consumer.Close()
+}
+
+func StopConsumer(pidFilePath string, l *zap.SugaredLogger) error {
+	data, err := os.ReadFile(pidFilePath)
+	if err != nil {
+		l.Errorf("Read PID path error, stopConsumer method: %v", err)
+		return fmt.Errorf("read PID path erorr, stopConsumer method: %w", err)
+	}
+
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		l.Errorf("Find process error, stopConsumer method: %v", err)
+		return fmt.Errorf("find process error, stopConsumer method: %w", err)
+	}
+
+	return proc.Signal(syscall.SIGTERM)
 }
